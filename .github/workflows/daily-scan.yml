@@ -1,0 +1,20 @@
+name: Daily Trend Scanner
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger-scanner:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger Writer Blueprint
+        run: |
+          curl --location --request POST "https://api.writer.com/v1/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/run" \
+            --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}" \
+            --header "Content-Type: application/json"
+      
+      - name: Log completion
+        run: echo "✓ Blueprint triggered successfully"
