@@ -17,7 +17,7 @@ jobs:
           
           response=$(curl -w "\nHTTP_STATUS:%{http_code}" -s \
             --location --request POST \
-            "https://api.writer.com/v1/agents/${{ secrets.WRITER_AGENT_ID }}/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/run" \
+            "https://api.writer.com/v1/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/run" \
             --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}" \
             --header "Content-Type: application/json" \
             --data '{"inputs": []}')
@@ -41,6 +41,6 @@ jobs:
       
       - name: Wait for processing
         run: |
-          echo "⏳ Waiting 30 seconds for blueprint to process..."
-          sleep 30
-          echo "✓ Done! Check Writer Knowledge Graph for results."
+          echo "⏳ Waiting 60 seconds for blueprint to complete..."
+          sleep 60
+          echo "✓ Done! Check your Knowledge Graph in Writer for the new report."
