@@ -8,57 +8,54 @@ on:
 jobs:
   trigger-scanner:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     
     steps:
-      - name: Trigger Writer Blueprint
+      - name: Trigger Blueprint
         id: trigger
         run: |
-          echo "🚀 Triggering Writer Blueprint..."
-          
-          response=$(curl -s --location --request POST \
-            "https://api.writer.com/v1/agents/${{ secrets.WRITER_AGENT_ID }}/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/jobs" \
+          response=$(curl -s -X POST "https://api.writer.com/v1/agents/${{ secrets.WRITER_AGENT_ID }}/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/jobs" \
             --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}" \
             --header "Content-Type: application/json" \
             --data '{"inputs": []}')
           
           echo "Response: $response"
           
-          # Extract job_id
-          job_id=$(echo "$response" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
+          job_id=$(echo "$response" | jq -r '.job_id // empty')
+          poll_url=$(echo "$response" | jq -r '.poll_url // empty')
           
           if [ -z "$job_id" ]; then
-            echo "❌ No job_id returned"
-            echo "Full response: $response"
+            echo "❌ No job ID returned"
             exit 1
           fi
           
-          echo "✓ Job triggered! ID: $job_id"
+          echo "Job ID: $job_id"
+          echo "Poll URL: $poll_url"
           echo "job_id=$job_id" >> $GITHUB_OUTPUT
+          echo "poll_url=$poll_url" >> $GITHUB_OUTPUT
       
       - name: Wait for completion
         run: |
-          job_id="${{ steps.trigger.outputs.job_id }}"
-          echo "⏳ Monitoring job: $job_id"
+          poll_url="${{ steps.trigger.outputs.poll_url }}"
           
+          echo "Monitoring job via: $poll_url"
           max_attempts=60
           attempt=0
           
           while [ $attempt -lt $max_attempts ]; do
-            status_response=$(curl -s \
-              "https://api.writer.com/v1/agents/jobs/$job_id" \
+            status_response=$(curl -s "https://api.writer.com${poll_url}" \
               --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}")
             
-            status=$(echo "$status_response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+            status=$(echo "$status_response" | jq -r '.status // empty')
             
             echo "[$((attempt+1))/$max_attempts] Status: $status"
             
             if [ "$status" = "completed" ]; then
               echo "✓ Blueprint completed successfully!"
+              echo "$status_response" | jq '.'
               exit 0
             elif [ "$status" = "failed" ]; then
               echo "❌ Blueprint failed"
-              echo "Details: $status_response"
+              echo "$status_response" | jq '.'
               exit 1
             fi
             
@@ -66,5 +63,8 @@ jobs:
             attempt=$((attempt+1))
           done
           
-          echo "⏱ Timeout after 10 minutes"
+          echo "⏱ Timeout waiting for completion"
+          echo "Last status:"
+          curl -s "https://api.writer.com${poll_url}" \
+            --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}" | jq '.'
           exit 1
