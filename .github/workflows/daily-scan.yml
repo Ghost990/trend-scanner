@@ -12,35 +12,59 @@ jobs:
     
     steps:
       - name: Trigger Writer Blueprint
+        id: trigger
         run: |
           echo "🚀 Triggering Writer Blueprint..."
           
-          response=$(curl -w "\nHTTP_STATUS:%{http_code}" -s \
-            --location --request POST \
-            "https://api.writer.com/v1/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/run" \
+          response=$(curl -s --location --request POST \
+            "https://api.writer.com/v1/agents/${{ secrets.WRITER_AGENT_ID }}/blueprints/${{ secrets.WRITER_BLUEPRINT_ID }}/jobs" \
             --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}" \
             --header "Content-Type: application/json" \
             --data '{"inputs": []}')
           
-          # Extract HTTP status code
-          http_status=$(echo "$response" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
-          response_body=$(echo "$response" | sed '/HTTP_STATUS:/d')
+          echo "Response: $response"
           
-          echo "HTTP Status: $http_status"
-          echo "Response: $response_body"
+          # Extract job_id
+          job_id=$(echo "$response" | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
           
-          # Check if successful
-          if [ "$http_status" = "200" ] || [ "$http_status" = "201" ]; then
-            echo "✓ Blueprint triggered successfully!"
-            exit 0
-          else
-            echo "❌ Failed with status $http_status"
-            echo "Response body: $response_body"
+          if [ -z "$job_id" ]; then
+            echo "❌ No job_id returned"
+            echo "Full response: $response"
             exit 1
           fi
+          
+          echo "✓ Job triggered! ID: $job_id"
+          echo "job_id=$job_id" >> $GITHUB_OUTPUT
       
-      - name: Wait for processing
+      - name: Wait for completion
         run: |
-          echo "⏳ Waiting 60 seconds for blueprint to complete..."
-          sleep 60
-          echo "✓ Done! Check your Knowledge Graph in Writer for the new report."
+          job_id="${{ steps.trigger.outputs.job_id }}"
+          echo "⏳ Monitoring job: $job_id"
+          
+          max_attempts=60
+          attempt=0
+          
+          while [ $attempt -lt $max_attempts ]; do
+            status_response=$(curl -s \
+              "https://api.writer.com/v1/agents/jobs/$job_id" \
+              --header "Authorization: Bearer ${{ secrets.WRITER_API_KEY }}")
+            
+            status=$(echo "$status_response" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+            
+            echo "[$((attempt+1))/$max_attempts] Status: $status"
+            
+            if [ "$status" = "completed" ]; then
+              echo "✓ Blueprint completed successfully!"
+              exit 0
+            elif [ "$status" = "failed" ]; then
+              echo "❌ Blueprint failed"
+              echo "Details: $status_response"
+              exit 1
+            fi
+            
+            sleep 10
+            attempt=$((attempt+1))
+          done
+          
+          echo "⏱ Timeout after 10 minutes"
+          exit 1
